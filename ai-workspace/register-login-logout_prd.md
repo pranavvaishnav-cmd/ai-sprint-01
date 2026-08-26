@@ -331,7 +331,7 @@ Mock D1 (`prepare` / `bind` / `all` / `run`). Do not use a real database. Cover 
 
 **Phase complete when**: Phase 0–2 tests pass.
 
-### Phase 3: Auth endpoints - PLANNED
+### Phase 3: Auth endpoints - COMPLETED
 
 **Objective**: Register, login, and logout are callable over HTTP.
 
@@ -476,7 +476,7 @@ MCQ stub:
 - `src/lib/types/user.ts` — public user vs D1 row vs create/update inputs
 - `src/lib/services/user-service.ts` — CRUD + password verify; only this module talks to D1 for users. Duplicate username/email throws `DuplicateUserError` on pre-check and on UNIQUE constraint races. Public `User` never includes `password_hash`; `getUserByIdentifier` returns the D1 row so login can verify the hash.
 - `src/lib/services/user-service.test.ts` — user service unit tests (mocked D1)
-- `src/lib/validations/auth.ts` — Zod schemas for register and login
+- `src/lib/validations/auth.ts` — Zod schemas for register and login. Password is an opaque digest (no min-8). Username may be the usual identifier pattern or an email so username can equal email.
 - `src/lib/validations/auth.test.ts` — schema accept/reject cases
 - `src/lib/hash-password.ts` — Web Crypto SHA-256 used by register/login forms
 - `src/lib/hash-password.test.ts` — digest shape and no-plaintext checks
@@ -555,14 +555,14 @@ Do not import the user service (or any D1 module) into a `'use client'` file.
 - [ ] A teacher can register with username equal to email
 - [ ] The typed password is SHA-256 hashed in the browser before the register and login POST bodies are sent
 - [ ] `users.password_hash` is a bcrypt hash, never plaintext and never the raw SHA-256 digest
-- [ ] API success payloads never include `password_hash`
+- [x] API success payloads never include `password_hash`
 - [ ] A teacher can log in with username **or** email and the matching password, and is taken to `/mcqs`
-- [ ] A wrong password or unknown identifier returns 401 `"Invalid credentials"` and does not reveal which was wrong
-- [ ] A duplicate username or email on register returns 409 and does not create a second row
-- [ ] Invalid payloads return 400 with a validation message
+- [x] A wrong password or unknown identifier returns 401 `"Invalid credentials"` and does not reveal which was wrong
+- [x] A duplicate username or email on register returns 409 and does not create a second row
+- [x] Invalid payloads return 400 with a validation message
 - [ ] Logout calls `POST /api/auth/logout`, clears any client display hint, and returns the teacher to `/login`
 - [ ] `/mcqs` is a stub only: greeting + logout, no question authoring
-- [ ] No cookies, JWTs, social login, or server session store are introduced
+- [x] No cookies, JWTs, social login, or server session store are introduced
 - [x] User service supports create, update, and delete even though update/delete have no UI in this phase
 - [ ] D1 queries use prepared statements and numbered placeholders
 - [ ] `npm test` is green for the tests listed in Phases 1–4
@@ -704,6 +704,6 @@ When working with this PRD:
 ## Current Status
 
 **Last Updated**: 2026-08-26
-**Current Phase**: Phase 2 complete — waiting for review before Phase 3
-**Status**: COMPLETED (Phases 0–2)
-**Next Steps**: After review, start Phase 3 (auth endpoints) with failing Vitest tests first.
+**Current Phase**: Phase 3 complete — waiting for review before Phase 4
+**Status**: COMPLETED (Phases 0–3)
+**Next Steps**: After review, start Phase 4 (frontend pages) with failing Vitest tests first.
