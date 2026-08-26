@@ -27,4 +27,10 @@ describe("auth-client display hint", () => {
 
 		expect(getStoredUser()).toBeNull();
 	});
+
+	it("getStoredUser returns a stable snapshot when storage is unchanged", () => {
+		setStoredUser(user);
+
+		expect(getStoredUser()).toBe(getStoredUser());
+	});
 });

@@ -1,20 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 
-import { clearStoredUser, getStoredUser, type StoredUser } from "@/lib/auth-client";
+import { clearStoredUser, getStoredUser, subscribeStoredUser } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function McqsPage() {
 	const router = useRouter();
-	const [user, setUser] = useState<StoredUser | null>(null);
+	const user = useSyncExternalStore(subscribeStoredUser, getStoredUser, () => null);
 	const [isLoggingOut, setIsLoggingOut] = useState(false);
-
-	useEffect(() => {
-		setUser(getStoredUser());
-	}, []);
 
 	async function handleLogout() {
 		setIsLoggingOut(true);

@@ -1,11 +1,11 @@
 Date created: 2026-08-26
-Date last modified: 2026-08-26 (TDD plan added)
+Date last modified: 2026-08-26 (Phase 5 complete — identity shipped)
 
 # Register, Login, and Logout - Technical PRD
 
 ## Overview/Problem
 
-QuizMaker is a greenfield application for teachers to collaborate on a shared test bank of multiple-choice questions. Before any of that collaboration can exist, more than one teacher must be able to create an account and come back to it. Today the starter has no user identity: there is no `users` table, no way to register, and no way to log in or log out. This phase solves that identity gap so later sprints can attach MCQ authoring to a known teacher.
+QuizMaker is a greenfield application for teachers to collaborate on a shared test bank of multiple-choice questions. Before any of that collaboration can exist, more than one teacher must be able to create an account and come back to it. This sprint added that identity layer: a D1 `users` table, register/login/logout HTTP APIs, and shadcn forms that SHA-256 hash the typed password in the browser before POST. **Phases 0–5 are COMPLETE.** Do not rebuild this feature. Later sprints can attach MCQ authoring to a known teacher, but they must add real server auth first — `sessionStorage` is a display hint only.
 
 ---
 
@@ -94,7 +94,7 @@ Scripts: `"test": "vitest run"` and `"test:watch": "vitest"`. Config lives in `v
 
 ### Database Schema
 
-Cloudflare D1 (SQLite). Add a D1 database bound as `DB` in `wrangler.jsonc` if it is not already present, then create the schema with a Wrangler migration. Never change the schema with ad-hoc SQL. Apply migrations locally only (`--local`). Do not apply to remote.
+Cloudflare D1 (SQLite). The database **already exists**: binding `DB`, database name `quizmaker-db`, id `750d1dc9-93c7-4839-b76c-57cc8ca3c272` in `wrangler.jsonc`. Schema lives in `migrations/0001_create_users_table.sql` and is applied both locally and remotely. Never change the schema with ad-hoc SQL. For new migrations: apply locally with `--local`. Do not apply `--remote` unless the user explicitly asks.
 
 ```sql
 CREATE TABLE users (
@@ -136,7 +136,7 @@ Plaintext must not be stored and must not be posted.
 
 Client hashing keeps plaintext off the JSON body. Server bcrypt keeps a stolen `users` row from being replayed as the wire credential. This is still not a full auth system; it is the minimum bar for this phase.
 
-`bcryptjs` is a pure-JS bcrypt that works under Workers `nodejs_compat`. Confirm with the user before adding it if it is not already a dependency. Do not use Node `crypto` APIs that are unavailable on Workers.
+`bcryptjs` is a pure-JS bcrypt that works under Workers `nodejs_compat`. It is already a dependency (`bcryptjs@^3`). Do not use Node `crypto` APIs that are unavailable on Workers.
 
 ### API Endpoints
 
@@ -487,84 +487,133 @@ MCQ stub:
 
 **Phase complete when**: Phase 0–4 tests pass.
 
-### Phase 5: Verification - PLANNED
+### Phase 5: Verification - COMPLETED
 
 **Objective**: Prove the flow works end to end, including duplicate and bad-password cases. The unit suite stays green; browser checks cover what jsdom cannot.
 
 **Tests first**: Do not add new product tests unless Phase 5 finds a gap. If a browser check fails because of missing coverage, write a failing Vitest case first, then fix production code.
 
-**Tasks**:
-1. `npm test` — full suite green (Phases 1–4)
-2. `npm run lint` and `npm run build`
-3. Exercise register → `/mcqs` → logout → login in the browser
-4. Confirm a duplicate username or email returns 409 and stays on the form
-5. Confirm a wrong password returns 401 with "Invalid credentials"
-6. Confirm `password_hash` is not plaintext and is not in JSON responses
-7. Confirm username-equal-to-email registration succeeds
+**Results (2026-08-26)**:
+
+| Check | Result |
+|--------|--------|
+| `npm test` | **55 passed** across 11 files (Vitest 3.2.7), including the Phase 5 snapshot-stability case |
+| `npm run lint` | **Pass** after ignoring `.wrangler/**` and replacing `useEffect`+`setState` on `/mcqs` with `useSyncExternalStore` (`react-hooks/set-state-in-effect`) |
+| `npm run build` | **Pass** (Next.js 16.2.12 Turbopack). Routes: `/`, `/login`, `/register`, `/mcqs`, `POST /api/auth/{register,login,logout}` |
+| Local browser | User verified register, login, logout |
+| Production browser | User verified register and login at `https://aisprints-starter.quiz-maker-007.workers.dev` |
+| Production duplicate register | `409` `{ "success": false, "error": "A user with this username already exists" }` |
+| Production bad password | `401` `{ "success": false, "error": "Invalid credentials" }` |
+| Production valid login | `200` public user only (no `password_hash`, no cookie, no token) |
+| Remote `password_hash` | Prefix `$2b$10$` (bcrypt, salt rounds 10), not plaintext and not the SHA-256 digest |
+
+**Lint gaps found and fixed in this phase (not new product tests):**
+1. `eslint .` was linting generated Wrangler bundles under `.wrangler/tmp`. Added `.wrangler/**` to `eslint.config.mjs` ignores.
+2. `/mcqs` read `sessionStorage` via `useEffect` → `setUser(...)`, which ESLint flags (`react-hooks/set-state-in-effect`). Switched to `useSyncExternalStore`. `getStoredUser` caches the parsed object so the snapshot reference is stable (otherwise React infinite-loops).
 
 **Deliverables**:
-- Lint, build, and `npm test` actually passing
-- Browser-verified happy path and the error paths above
-
-**Phase complete when**: Full Vitest suite is green, lint and build pass, and the browser checks above succeed.
+- Lint, build, and `npm test` passing
+- Browser-verified happy path (local + production) and API error paths above
 
 ---
 
 ## Technical Implementation Details
 
+### Shipped environment (do not recreate)
+
+| Item | Value |
+|------|--------|
+| Git branch | `feature/register-login-logout` (all phases on this branch) |
+| Worker name | `aisprints-starter` (starter name; do not rename unless asked) |
+| Production URL | `https://aisprints-starter.quiz-maker-007.workers.dev` |
+| D1 binding | `DB` |
+| D1 database name | `quizmaker-db` |
+| D1 database id | `750d1dc9-93c7-4839-b76c-57cc8ca3c272` |
+| Remote schema | `migrations/0001_create_users_table.sql` **already applied** with `--remote` |
+| Display-hint key | `sessionStorage["quizmaker_user"]` — public user JSON only, **not auth** |
+
+`npm run deploy` has already been run for this sprint. Do not deploy again and do not re-apply `0001` remotely unless the user asks.
+
 ### Key Files
 
-- `vitest.config.ts` — Vitest harness (`jsdom`, `@/` alias)
-- `wrangler.jsonc` — D1 `DB` binding
+- `vitest.config.ts` — Vitest 3 harness (`jsdom`, `@/` via `vite-tsconfig-paths`, `@vitejs/plugin-react@4`). Excludes `node_modules`, `.next`, `.open-next`, `.wrangler`.
+- `eslint.config.mjs` — Next ESLint. **Must ignore `.wrangler/**`** or `npm run lint` scans generated Wrangler bundles and fails.
+- `tsconfig.json` — **Must `exclude: [".next/dev"]`**. Next.js re-adds `.next/dev/types/**/*.ts` to `include`; a corrupt `routes.d.ts` there breaks `npm run build` TypeScript. Excluding `.next/dev` is the durable fix.
+- `wrangler.jsonc` — Worker `aisprints-starter`, `nodejs_compat`, D1 `DB` → `quizmaker-db` / `750d1dc9-93c7-4839-b76c-57cc8ca3c272`
+- `next.config.ts` — `turbopack.root` pinned; `initOpenNextCloudflareForDev()` so `getCloudflareContext()` works in `npm run dev`
 - `migrations/0001_create_users_table.sql` — `users` schema
-- `migrations/0001_create_users_table.test.ts` — schema contract tests
-- `src/lib/types/user.ts` — public user vs D1 row vs create/update inputs
-- `src/lib/services/user-service.ts` — CRUD + password verify; only this module talks to D1 for users. Duplicate username/email throws `DuplicateUserError` on pre-check and on UNIQUE constraint races. Public `User` never includes `password_hash`; `getUserByIdentifier` returns the D1 row so login can verify the hash.
-- `src/lib/services/user-service.test.ts` — user service unit tests (mocked D1)
-- `src/lib/validations/auth.ts` — Zod schemas for register and login. Password is an opaque digest (no min-8). Username may be the usual identifier pattern or an email so username can equal email.
+- `migrations/0001_create_users_table.test.ts` — schema contract tests (read the SQL file; no live D1)
+- `src/lib/types/user.ts` — public `User` vs D1 `UserRow` vs `CreateUserInput` / `UpdateUserInput`
+- `src/lib/services/user-service.ts` — CRUD + bcrypt; **only this module talks to D1 for users**. `DuplicateUserError` on pre-check and UNIQUE races. Public `User` never includes `password_hash`. `getUserByIdentifier` returns `UserRow` so login can `verifyPassword`.
+- `src/lib/services/user-service.test.ts` — mocked `prepare` / `bind` / `all` / `run`
+- `src/lib/validations/auth.ts` — Zod. Password is an opaque digest (no min-8). Username may be `[a-zA-Z0-9_-]+` **or** a valid email.
 - `src/lib/validations/auth.test.ts` — schema accept/reject cases
-- `src/lib/hash-password.ts` — Web Crypto SHA-256 used by register/login forms
-- `src/lib/hash-password.test.ts` — digest shape and no-plaintext checks
-- `src/lib/auth-client.ts` — client-only public-user display hint; not auth
-- `src/lib/auth-client.test.ts` — sessionStorage round-trip and clear
-- `src/components/login-form.tsx` — shadcn login block (no Google, no forgot-password)
-- `src/components/signup-form.tsx` — shadcn signup block (first/last name, no Google)
-- `src/app/api/auth/register/route.ts` — POST register
-- `src/app/api/auth/register/route.test.ts` — 201/400/409/500
-- `src/app/api/auth/login/route.ts` — POST login
-- `src/app/api/auth/login/route.test.ts` — 200/400/401, no cookie/token
-- `src/app/api/auth/logout/route.ts` — POST logout
-- `src/app/api/auth/logout/route.test.ts` — 200 success
-- `src/app/page.tsx` — landing
-- `src/app/register/page.tsx` — registration form
-- `src/app/register/page.test.tsx` — hash-then-POST, errors, redirect
-- `src/app/login/page.tsx` — login form
+- `src/lib/hash-password.ts` — Web Crypto SHA-256 hex used by both forms
+- `src/lib/hash-password.test.ts` — 64-char hex, deterministic, not plaintext
+- `src/lib/auth-client.ts` — `sessionStorage` display hint. `getStoredUser` **caches** the parsed object so `useSyncExternalStore` does not infinite-loop.
+- `src/lib/auth-client.test.ts` — round-trip, clear, stable snapshot identity
+- `src/components/login-form.tsx` — shadcn login block (no Google, no forgot-password); identifier = username or email; `minLength={8}` on typed password
+- `src/components/signup-form.tsx` — shadcn signup block (first + last name, no Google); confirm password before hash
+- `src/app/api/auth/register/route.ts` — POST register → 201 / 400 / 409 / 500
+- `src/app/api/auth/register/route.test.ts` — mocks Cloudflare + `createUser`
+- `src/app/api/auth/login/route.ts` — POST login → 200 / 400 / 401 / 500
+- `src/app/api/auth/login/route.test.ts` — username or email, generic 401, no cookie/token
+- `src/app/api/auth/logout/route.ts` — POST logout 200 no-op
+- `src/app/api/auth/logout/route.test.ts`
+- `src/app/page.tsx` — landing Register / Log in
+- `src/app/register/page.tsx` — Server Component shell + `SignupForm`
+- `src/app/register/page.test.tsx` — hash-then-POST, mismatch, 201, 409
+- `src/app/login/page.tsx` — Server Component shell + `LoginForm`
 - `src/app/login/page.test.tsx` — hash-then-POST, 401, redirect
-- `src/app/mcqs/page.tsx` — MCQ stub + logout
+- `src/app/mcqs/page.tsx` — stub + logout; reads hint via `useSyncExternalStore`
 - `src/app/mcqs/page.test.tsx` — greeting, logout, no MCQ authoring
 
 ### Implementation Patterns
 
 ```typescript
 // Client: hash before POST. Never send the typed password.
-async function hashPasswordForWire(plain: string): Promise<string> {
+// Source: src/lib/hash-password.ts
+export async function hashPasswordForWire(plain: string): Promise<string> {
   const bytes = new TextEncoder().encode(plain);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 }
+```
 
-// Server: D1 access stays in the service. Numbered placeholders.
+```typescript
+// Forms POST the digest in `password`, not the typed value.
+const digest = await hashPasswordForWire(password);
+await fetch("/api/auth/login", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ identifier, password: digest }),
+});
+```
+
+```typescript
+// Server: D1 stays in the user service. Numbered placeholders. Prefer all() + results[0].
 const result = await db
   .prepare(
     `INSERT INTO users (first_name, last_name, username, email, password_hash)
      VALUES (?1, ?2, ?3, ?4, ?5)
-     RETURNING id, first_name, last_name, username, email, created_at, updated_at`,
+     RETURNING id, first_name, last_name, username, email, password_hash, created_at, updated_at`,
   )
-  .bind(firstName, lastName, username, email, passwordHash)
+  .bind(input.firstName, input.lastName, input.username, input.email, passwordHash)
   .all<UserRow>();
 const row = result.results[0];
+```
+
+```typescript
+// Login lookup: username OR email. Returns the row (includes password_hash).
+`SELECT ... FROM users WHERE username = ?1 OR email = ?1`
+```
+
+```typescript
+// Route handlers: getCloudflareContext then env.DB. Map DuplicateUserError → 409.
+const { env } = await getCloudflareContext();
+const user = await createUser(env.DB, parsed.data);
 ```
 
 ```typescript
@@ -580,19 +629,53 @@ beforeEach(() => {
 });
 ```
 
+```jsonc
+// wrangler.jsonc — keep this binding. Do not revert to a placeholder UUID.
+"d1_databases": [
+  {
+    "binding": "DB",
+    "database_name": "quizmaker-db",
+    "database_id": "750d1dc9-93c7-4839-b76c-57cc8ca3c272"
+  }
+]
+```
+
+```json
+// tsconfig.json — Next re-includes .next/dev/types; exclude the folder or typecheck can fail.
+"exclude": ["node_modules", ".next/dev"]
+```
+
+```tsx
+// /mcqs display hint: useSyncExternalStore, not useEffect+setState.
+// getStoredUser must return a stable object reference when storage is unchanged.
+const user = useSyncExternalStore(subscribeStoredUser, getStoredUser, () => null);
+```
+
 Do not import the user service (or any D1 module) into a `'use client'` file.
+
+### Password pipeline (do not change)
+
+1. Browser: typed password → SHA-256 hex (`hashPasswordForWire`).
+2. Wire JSON `password` field = that hex digest (64 chars).
+3. Server `hashPassword` / `verifyPassword` treat the incoming string as the secret. They bcrypt it (salt rounds **10**) / compare. They do **not** SHA-256 again.
+4. D1 `password_hash` = bcrypt string (`$2b$10$...`).
+5. API JSON never includes `password_hash`.
+
+Client `minLength={8}` applies to the **typed** password. Zod `password: z.string().min(1)` applies to the **digest**.
 
 ### Important Notes
 
-- Prepared statements with bound parameters only. Never concatenate user input into SQL.
-- Register Zod schema validates names/username/email. After client hashing, `password` is an opaque digest; do not apply "min 8 characters" to the hex string on the server. Enforce min length on the typed password in the browser before hashing.
-- Duplicate username/email: check before insert and still handle UNIQUE failures so a race does not 500.
-- Logout has nothing to revoke on the server. The endpoint exists so the client has a single, explicit contract.
-- `npm run dev` is Node. D1 and Workers behavior need `npm run preview`.
-- Do not deploy. Do not apply migrations with `--remote`.
-- Ask before adding a dependency beyond what this PRD already approves: `bcryptjs` (and `@types/bcryptjs` if needed) and the Phase 0 Vitest stack. Zod is already in the starter.
-- TDD is required. Do not implement a phase's production code before that phase's tests exist and have been observed failing.
-- Existing files in this tree that already resemble this feature must be brought in line with this PRD (especially client-side hashing). The PRD wins. If production code already exists when a phase starts, still write the tests first and confirm they fail for the missing behavior (for example client hashing) before changing the code.
+- Prepared statements with bound parameters only. Never concatenate user input into SQL. Use `?1`, `?2`, not anonymous `?`.
+- Register Zod schema validates names/username/email. After client hashing, `password` is an opaque digest; do not apply "min 8 characters" to the hex string on the server.
+- Duplicate username/email: check before insert and still handle UNIQUE failures so a race does not 500. `DuplicateUserError.field` is `"username"` or `"email"`.
+- Logout has nothing to revoke on the server. The endpoint exists so the client has a single, explicit contract: POST, clear `quizmaker_user`, go to `/login`.
+- `npm run dev` is Node. D1 and Workers behavior need `npm run preview`. Production is Cloudflare Workers via OpenNext.
+- **Do not deploy** unless the user explicitly asks. Production is already live for this sprint.
+- **Do not apply D1 migrations with `--remote`** unless the user explicitly asks. `0001` is already on the remote `quizmaker-db`.
+- Ask before adding a dependency beyond what this PRD already has: `bcryptjs`, `@types/bcryptjs`, Vitest 3, `@vitejs/plugin-react@4`, Testing Library, `jsdom`, `vite-tsconfig-paths`. Zod is in the starter.
+- TDD is required for new product work. This identity feature is complete; do not re-implement it.
+- Corporate npm often 401s against Pearson Nexus. Install with `--registry https://registry.npmjs.org/` for that command only. Do not change the user's global npm config.
+- `gh` is not installed in this environment. Git push to `origin` works.
 
 ---
 
@@ -601,7 +684,7 @@ Do not import the user service (or any D1 module) into a `'use client'` file.
 - [x] A teacher can register with first name, last name, username, email, and password, and is taken to `/mcqs`
 - [x] A teacher can register with username equal to email
 - [x] The typed password is SHA-256 hashed in the browser before the register and login POST bodies are sent
-- [ ] `users.password_hash` is a bcrypt hash, never plaintext and never the raw SHA-256 digest
+- [x] `users.password_hash` is a bcrypt hash, never plaintext and never the raw SHA-256 digest (remote prefix `$2b$10$`)
 - [x] API success payloads never include `password_hash`
 - [x] A teacher can log in with username **or** email and the matching password, and is taken to `/mcqs`
 - [x] A wrong password or unknown identifier returns 401 `"Invalid credentials"` and does not reveal which was wrong
@@ -611,10 +694,10 @@ Do not import the user service (or any D1 module) into a `'use client'` file.
 - [x] `/mcqs` is a stub only: greeting + logout, no question authoring
 - [x] No cookies, JWTs, social login, or server session store are introduced
 - [x] User service supports create, update, and delete even though update/delete have no UI in this phase
-- [ ] D1 queries use prepared statements and numbered placeholders
-- [x] `npm test` is green for the tests listed in Phases 1–4
-- [ ] Each implementation phase was developed red-then-green (tests existed and failed before the production code that makes them pass)
-- [ ] `npm run lint` and `npm run build` succeed
+- [x] D1 queries use prepared statements and numbered placeholders
+- [x] `npm test` is green for the tests listed in Phases 1–4 (55 tests including Phase 5 snapshot-stability case)
+- [x] Each implementation phase was developed red-then-green (tests existed and failed before the production code that makes them pass)
+- [x] `npm run lint` and `npm run build` succeed
 
 ---
 
@@ -622,13 +705,13 @@ Do not import the user service (or any D1 module) into a `'use client'` file.
 
 | Metric | Target | How Measured |
 |--------|--------|--------------|
-| Happy-path completion | Register and login each reach `/mcqs` on the first try with valid input | Manual browser pass in Phase 5 |
-| Duplicate handling | Second register with the same username or email is rejected and the table has one row | 409 response + local D1 query |
-| Password secrecy | No plaintext password in D1 or in network JSON | Inspect request payload (hex digest only) and `password_hash` column (bcrypt) |
+| Happy-path completion | Register and login each reach `/mcqs` on the first try with valid input | Manual browser pass (local + production) in Phase 5 |
+| Duplicate handling | Second register with the same username or email is rejected and the table has one row | Production `409` + unique constraints |
+| Password secrecy | No plaintext password in D1 or in network JSON | Request payload is hex digest; `password_hash` is `$2b$10$...` |
 | Unit-test gate | Every listed phase test is green | `npm test` (`vitest run`) |
 | Scope discipline | Zero tokens, cookies, or MCQ tables | Code review against Out of Scope |
 
-This is a foundation sprint. There is no production traffic to measure yet; the table above is how we know the bet landed.
+This sprint's identity layer is in production. There is still no MCQ traffic to measure.
 
 ---
 
@@ -636,29 +719,32 @@ This is a foundation sprint. There is no production traffic to measure yet; the 
 
 ### External Dependencies
 
-- Cloudflare D1 — user persistence
-- `bcryptjs` — server-side salted password hashing (propose before adding if missing)
+- Cloudflare D1 — user persistence (`quizmaker-db`)
+- `bcryptjs@^3` — server-side salted password hashing (installed)
 - Web Crypto API — client SHA-256; built into the browser, no package
-- Vitest — unit tests (`vi` mocks, `vitest run`)
+- Vitest 3 — unit tests (`vi` mocks, `vitest run`)
 - `@testing-library/react` and `@testing-library/user-event` — client page tests
 - `jsdom` — Vitest DOM environment
 - `vite-tsconfig-paths` — `@/` alias in tests
-- `@vitejs/plugin-react` — JSX in `.test.tsx` files. Pinned to v4 because latest v6 requires Babel 8, which this starter does not have.
+- `@vitejs/plugin-react@4` — JSX in `.test.tsx`. Do **not** bump to v6 (needs Babel 8)
 
 ### Internal Dependencies
 
-- Next.js App Router route handlers — HTTP surface
+- Next.js App Router route handlers — HTTP surface (exception to the Server Actions rule)
 - `@opennextjs/cloudflare` `getCloudflareContext()` — `env.DB`
-- Zod — request validation
+- Zod 4 — request validation
 - shadcn/ui `card`, `button`, `input`, `field`, `label` — forms and stub
-- `src/lib/services/` — domain logic home for the user service
-- `.cursor/skills/testing/SKILL.md` — Vitest harness, mocking, and what makes a test worth writing
+- `src/lib/services/user-service.ts` — all user D1 access
+- `.cursor/skills/testing/SKILL.md` — Vitest harness and mocking
 
 ### Environment / config
 
-- `wrangler.jsonc` D1 binding name `DB`
-- No new secrets for this phase (no JWT secret, no OAuth client ids)
-- Local migrations only via Wrangler `--local`
+- `wrangler.jsonc` D1 binding name `DB`, database `quizmaker-db`, id `750d1dc9-93c7-4839-b76c-57cc8ca3c272`
+- No auth secrets for this phase (no JWT secret, no OAuth client ids)
+- Local migrations: `npx wrangler d1 migrations apply quizmaker-db --local`
+- Remote `0001` already applied; do not re-run unless asked
+- `tsconfig.json` exclude `.next/dev` (see troubleshooting)
+- `eslint.config.mjs` ignore `.wrangler/**`
 
 ---
 
@@ -667,37 +753,70 @@ This is a foundation sprint. There is no production traffic to measure yet; the 
 ### Technical Risks
 
 - **Risk**: `bcryptjs` is CPU-heavy on the Workers isolate, or behaves differently under `npm run dev` (Node) vs `npm run preview` (Workers).
-- **Mitigation**: Keep salt rounds at 10. Verify register/login on `npm run preview`, not only `npm run dev`. If bcrypt is unusable on Workers, switch the server hash to Web Crypto PBKDF2 and document the change here.
+- **Mitigation**: Salt rounds stay at 10. Register/login were verified on production Workers, not only `npm run dev`. If bcrypt becomes unusable, switch the server hash to Web Crypto PBKDF2 and document the change here.
 
 - **Risk**: Client SHA-256 without a per-user salt would be replayable if it were stored directly.
 - **Mitigation**: Store bcrypt of the digest, not the digest itself. Compare with `bcrypt.compare`.
 
 - **Risk**: Treating a `sessionStorage` user object as "logged in" and later protecting MCQ APIs with it.
-- **Mitigation**: Document it as a display hint only. Next sprint that adds MCQ writes must add real server auth; until then APIs are unauthenticated by design.
+- **Mitigation**: Document it as a display hint only. **Next sprint that adds MCQ writes must add real server auth** (cookie or equivalent). Until then APIs are unauthenticated by design. Forging `quizmaker_user` does not grant server access because there is none.
 
 - **Risk**: Unique username/email races produce a raw SQLite error as 500.
-- **Mitigation**: Pre-check plus catch UNIQUE failures and map them to 409.
+- **Mitigation**: Pre-check plus catch UNIQUE failures (`users.username` / `users.email` in the error message) and map them to 409.
 
 ### User Experience Risks
 
 - **Risk**: Teachers expect to stay logged in across tabs/devices.
-- **Mitigation**: Out of scope. Copy on the stub can say this is a first-pass sign-in, not a lasting session.
+- **Mitigation**: Out of scope. The stub is a first-pass sign-in, not a lasting session.
 
 - **Risk**: Hashing on the client makes debugging "wrong password" harder.
-- **Mitigation**: Keep login errors generic. Confirm hashing is applied on both register and login with the same helper so a mismatch is a code bug, not a user error.
+- **Mitigation**: Keep login errors generic. Both forms use `hashPasswordForWire` so a mismatch is a code bug, not a user error.
 
 ---
 
 ## Troubleshooting Guide
 
-Populate this section when bugs are found during implementation. Starter entries:
-
 ### D1 binding missing at runtime
 
 **Problem**: Register/login throw because `env.DB` is undefined.
 **Cause**: Binding not in `wrangler.jsonc`, or running only `npm run dev` without a local D1, or `cf-typegen` not re-run.
-**Solution**: Add the `d1_databases` block, apply the migration with `--local`, run `npm run cf-typegen`, verify with `npm run preview`.
+**Solution**: Keep the existing `d1_databases` block, apply new migrations with `--local`, run `npm run cf-typegen`, verify with `npm run preview`.
 **Code Reference**: `wrangler.jsonc`
+
+### Placeholder D1 id blocks deploy
+
+**Problem**: `npm run deploy` / Wrangler fails or binds the wrong database because `database_id` is `00000000-0000-0000-0000-000000000001`.
+**Cause**: The starter used a placeholder UUID. Production needs the real D1 id from `npx wrangler d1 create quizmaker-db`.
+**Solution**: Keep `database_id` as `750d1dc9-93c7-4839-b76c-57cc8ca3c272`. Do not recreate the database.
+**Code Reference**: `wrangler.jsonc`
+
+### Production register 500 because remote DB has no `users` table
+
+**Problem**: Local register works; production returns 500.
+**Cause**: Migrations applied with `--local` only. Remote D1 starts empty.
+**Solution**: After the user asks to fix production: `npx wrangler d1 migrations apply quizmaker-db --remote`. `0001` is already applied; do not run this again unless a **new** migration exists and the user asks.
+**Code Reference**: `migrations/0001_create_users_table.sql`
+
+### `npm run build` TypeScript fails on `.next/dev/types/routes.d.ts`
+
+**Problem**: Typecheck errors in generated `routes.d.ts` (truncated/corrupt tokens such as `d'>`).
+**Cause**: Next.js adds `.next/dev/types/**/*.ts` to `tsconfig` include. Dev-server generated types can be corrupt and are not a source of truth for production build.
+**Solution**: `"exclude": ["node_modules", ".next/dev"]` in `tsconfig.json`. Do not try to hand-edit files under `.next/`.
+**Code Reference**: `tsconfig.json`
+
+### `npm run lint` floods errors from `.wrangler/tmp`
+
+**Problem**: Thousands of ESLint errors in generated Wrangler middleware bundles.
+**Cause**: `.wrangler` is gitignored but ESLint still walks it unless ignored.
+**Solution**: Include `".wrangler/**"` in `eslint.config.mjs` `ignores`.
+**Code Reference**: `eslint.config.mjs`
+
+### `/mcqs` infinite loop: "getSnapshot should be cached"
+
+**Problem**: `useSyncExternalStore` maximum update depth exceeded.
+**Cause**: `getStoredUser()` `JSON.parse`s on every call, so each snapshot is a new object reference.
+**Solution**: Cache parsed user against the raw `sessionStorage` string; return the same object when the raw value is unchanged.
+**Code Reference**: `src/lib/auth-client.ts`, `src/app/mcqs/page.tsx`
 
 ### Client hash not applied on one of the forms
 
@@ -710,8 +829,8 @@ Populate this section when bugs are found during implementation. Starter entries
 
 **Problem**: Duplicate register returns 500.
 **Cause**: Duplicate error from D1 is not mapped.
-**Solution**: Catch and return 409 with a field-specific message that does not leak the other column.
-**Code Reference**: `src/app/api/auth/register/route.ts`
+**Solution**: Catch `DuplicateUserError` and UNIQUE failures; return 409 with a field-specific message that does not leak the other column.
+**Code Reference**: `src/app/api/auth/register/route.ts`, `src/lib/services/user-service.ts`
 
 ### npm install against Pearson Nexus returns 401
 
@@ -723,34 +842,43 @@ Populate this section when bugs are found during implementation. Starter entries
 
 **Problem**: Latest `@vitejs/plugin-react` (v6) cannot resolve against the starter's Babel 7 tree.
 **Cause**: plugin-react v6 wants `@babel/core@^8`.
-**Solution**: Pin `vitest@3` and `@vitejs/plugin-react@4`, which the Phase 0 install used.
+**Solution**: Keep `vitest@3` and `@vitejs/plugin-react@4`.
 
 ---
 
 ## Notes for AI Agents
 
-When working with this PRD:
+When working from this PRD:
 
-1. Start by reading the Problem and Hypothesis to understand intent
-2. Use Scope (In/Out/Cut) to determine boundaries — do not build out-of-scope items
-3. Update phase status markers as work progresses
-4. Add implementation details under "Technical Implementation Details" as code is written
-5. Mark acceptance criteria as complete when features work
-6. Add troubleshooting entries when bugs are found and fixed
-7. Keep all sections current — remove outdated information
-8. Use code references format: `filepath:line-number` when citing code
-9. Prefer route handlers for this feature even though the Next.js rule prefers Server Actions — that exception is explicit in Cut
-10. Never introduce cookies, JWTs, or MCQ tables while implementing this PRD
-11. Ask before adding dependencies other than those this PRD already approves
-12. Do not deploy; do not apply D1 migrations remotely
-13. Implement with TDD. For each phase: write the listed tests, run `npm test` and confirm red, implement, run `npm test` and confirm green including prior phases. Do not mark a phase COMPLETED while its tests are red or missing.
-14. Follow `.cursor/skills/testing/SKILL.md`. Mock D1 and `getCloudflareContext()`. Do not add `@cloudflare/vitest-pool-workers` unless asked.
+1. This identity sprint is **done**. Do not re-create the `users` table, Vitest harness, auth routes, or forms.
+2. Source of truth for *this* feature remains this file. For the next feature, write a new PRD; do not silently expand this one into MCQ authoring.
+3. Use Scope (In/Out/Cut) — social login, JWTs, cookies, and MCQ tables stay out until a new PRD says otherwise.
+4. Prefer route handlers for auth even though the Next.js rule prefers Server Actions — that exception is explicit in Cut.
+5. Never treat `sessionStorage["quizmaker_user"]` as authentication. The next sprint that writes MCQs must add a real server session (or equivalent) first.
+6. Ask before adding dependencies. Do not bump `@vitejs/plugin-react` to v6.
+7. Do not deploy unless asked. Do not apply D1 migrations remotely unless asked. `0001` is already on remote `quizmaker-db`.
+8. Follow `.cursor/skills/testing/SKILL.md`. Mock D1 and `getCloudflareContext()`. Do not add `@cloudflare/vitest-pool-workers` unless asked.
+9. Keep `tsconfig.json` exclude `.next/dev` and ESLint ignore `.wrangler/**`.
+10. Stay on `feature/register-login-logout` unless the user asks for a new branch.
+11. Corporate npm: `--registry https://registry.npmjs.org/` per install if Nexus 401s.
+
+---
+
+## Notes for the next sprint (MCQ authoring)
+
+- Add **real server auth** before any MCQ create/update/delete API. This sprint's APIs are intentionally unauthenticated.
+- Reuse `users.id` as the teacher foreign key. Do not invent a second identity table.
+- `/mcqs` is a stub: greeting + logout only. Replace it when authoring UI exists; keep logout.
+- Reuse shadcn `card` / `button` / `input` / `field`. Ask before new dependencies.
+- Continue TDD with the existing Vitest harness. Colocate `*.test.ts(x)`.
+- New D1 tables get a new numbered migration (`0002_...`). Apply `--local` first. Remote only if the user asks.
 
 ---
 
 ## Current Status
 
 **Last Updated**: 2026-08-26
-**Current Phase**: Phase 4 complete — waiting for review before Phase 5
-**Status**: COMPLETED (Phases 0–4)
-**Next Steps**: After review, start Phase 5 (lint, build, browser verification).
+**Current Phase**: Phase 5 complete
+**Status**: COMPLETED (Phases 0–5)
+**Next Steps**: New PRD for MCQ authoring. Do not start MCQ work from this document. Real sessions before any MCQ writes.
+
