@@ -46,6 +46,8 @@ We believe that a simple register / login / logout flow, backed by a hashed-pass
 - **Server Actions for register/login** — The App Router convention prefers Server Actions for forms, but this feature is explicitly an HTTP POST contract so the client can hash the password and send JSON. Route handlers in `src/app/api/` are the intended surface.
 - **Real session management** — A cookie or server session would be the usual next step after login. It is deferred so this sprint stays a thin identity layer. Any client-only display hint (for example `sessionStorage` of the public user) is not authentication and must not be treated as a grant of access.
 - **Dedicated REST endpoints for update/delete user** — The user service will implement those methods for later sprints. This phase only exposes register, login, and logout over HTTP.
+- **Google / social buttons on the shadcn login and signup blocks** — The stock blocks include them. Social login is out of scope, so they are omitted.
+- **Forgot password link on the login block** — Password reset is out of scope.
 - **`@cloudflare/vitest-pool-workers`** — Real Workers-runtime tests change how the whole suite runs. Unit tests mock D1 and `getCloudflareContext()`. Do not add this pool unless we explicitly decide to.
 
 ---
@@ -198,37 +200,78 @@ The client then clears any local display hint and navigates to `/login`.
 
 ### User Interface Requirements
 
-Use existing shadcn/ui pieces (`card`, `button`, `input`, `field`, `label`). Semantic theme tokens only (`bg-background`, `text-muted-foreground`, `border-destructive`). Forms are client components because they need local state, hashing, and `fetch`. Keep `'use client'` on the form pages, not on the layout.
+Use **shadcn/ui login and signup blocks** as the visual starting point (centered `min-h-svh` shell, `Card`, `Field`/`FieldGroup`/`FieldLabel`/`FieldDescription`, `Input`, `Button`). Style with existing Tailwind/shadcn tokens only. Do not add a CSS module or extra styling library.
+
+Forms are client components (`LoginForm`, `SignupForm`) because they need local state, Web Crypto hashing, and `fetch`. Route `page.tsx` files stay Server Components that only compose the layout + form. Keep `'use client'` off the root layout.
+
+**Cut from the stock blocks (do not ship):**
+- "Login with Google" / "Sign up with Google" — social login is out of scope
+- "Forgot your password?" — password reset is out of scope
+- Single "Full Name" field — QuizMaker stores first name and last name separately
+
+**Adaptations required:**
+- Login identifier is **username or email**, not email-only
+- Register fields: first name, last name, username, email, password, confirm password
+- Username and email may be the same value
+- Surface API/client errors with `FieldError` (`errors={[{ message }]}`)
+- Cross-links use Next.js `Link` to `/register` and `/login`, not `href="#"`
 
 #### Home (/)
 
 - Short explanation that QuizMaker is a collaborative MCQ test bank
 - Primary action: Register
 - Secondary action: Log in
+- Same centered card layout as the auth blocks (`min-h-svh`, `p-6 md:p-10`)
 
 #### Register (/register)
+
+Page shell from the shadcn signup block:
+
+```tsx
+<div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
+  <div className="w-full max-w-sm">
+    <SignupForm />
+  </div>
+</div>
+```
+
+`SignupForm` lives in `src/components/signup-form.tsx` (`'use client'`).
 
 - Fields: first name, last name, username, email, password, confirm password
 - Client validation:
   - All fields required
   - Email must look like an email
-  - Username at least 3 characters; letters, numbers, underscore, hyphen
-  - Password at least 8 characters
+  - Username at least 3 characters; letters, numbers, underscore, hyphen **or** a valid email (so username may equal email)
+  - Password at least 8 characters (typed password, before hashing)
   - Confirm password must match password **before** hashing
-- Username and email are allowed to be identical
 - On submit: hash password, POST `/api/auth/register`, on 201 store the public user as a client-only display hint and `router.push("/mcqs")`
 - On 400/409: show the server `error` string via `FieldError`
-- Link to `/login` for existing accounts
+- Primary button copy from the block: **Create Account**
+- `FieldDescription` link: already have an account → `/login`
 
 #### Login (/login)
 
+Page shell from the shadcn login block:
+
+```tsx
+<div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
+  <div className="w-full max-w-sm">
+    <LoginForm />
+  </div>
+</div>
+```
+
+`LoginForm` lives in `src/components/login-form.tsx` (`'use client'`).
+
 - Fields: username or email (`identifier`), password
 - On submit: hash password, POST `/api/auth/login`, on 200 store the public user hint and `router.push("/mcqs")`
-- On 401: show "Invalid credentials"
-- Link to `/register`
+- On 401: show "Invalid credentials" via `FieldError`
+- Primary button copy from the block: **Login**
+- `FieldDescription` link: don't have an account → `/register`
 
 #### MCQ stub (/mcqs)
 
+- Same centered card layout as the auth pages
 - Placeholder copy that question authoring arrives in the next sprint
 - If a public user hint is present, greet by name/username
 - Logout button: POST `/api/auth/logout`, clear the hint, navigate to `/login`
@@ -385,7 +428,7 @@ Logout:
 
 **Phase complete when**: Phase 0–3 tests pass.
 
-### Phase 4: Frontend pages - PLANNED
+### Phase 4: Frontend pages - COMPLETED
 
 **Objective**: A teacher can register or log in in the browser and land on the MCQ stub.
 
@@ -428,7 +471,7 @@ MCQ stub:
 **Implementation tasks** (after the tests are red):
 1. Shared client helper to SHA-256 a password to hex
 2. Optional `sessionStorage` helper for the public user display hint
-3. Home, register, login, and `/mcqs` stub pages using shadcn `card` / `field` / `input` / `button`
+3. Home, register, login, and `/mcqs` stub pages using the shadcn login/signup **blocks** (`LoginForm`, `SignupForm`) plus `card` / `field` / `input` / `button`. Omit Google and forgot-password from the stock blocks.
 4. Hash-then-POST on register and login; redirect to `/mcqs` on success
 5. Logout on the stub
 
@@ -437,6 +480,8 @@ MCQ stub:
 - `src/app/register/page.tsx` and `page.test.tsx`
 - `src/app/login/page.tsx` and `page.test.tsx`
 - `src/app/mcqs/page.tsx` and `page.test.tsx`
+- `src/components/login-form.tsx` — shadcn login block, adapted
+- `src/components/signup-form.tsx` — shadcn signup block, adapted
 - `src/lib/hash-password.ts` and `src/lib/hash-password.test.ts`
 - `src/lib/auth-client.ts` and `src/lib/auth-client.test.ts`
 
@@ -482,6 +527,8 @@ MCQ stub:
 - `src/lib/hash-password.test.ts` — digest shape and no-plaintext checks
 - `src/lib/auth-client.ts` — client-only public-user display hint; not auth
 - `src/lib/auth-client.test.ts` — sessionStorage round-trip and clear
+- `src/components/login-form.tsx` — shadcn login block (no Google, no forgot-password)
+- `src/components/signup-form.tsx` — shadcn signup block (first/last name, no Google)
 - `src/app/api/auth/register/route.ts` — POST register
 - `src/app/api/auth/register/route.test.ts` — 201/400/409/500
 - `src/app/api/auth/login/route.ts` — POST login
@@ -551,21 +598,21 @@ Do not import the user service (or any D1 module) into a `'use client'` file.
 
 ## Acceptance Criteria
 
-- [ ] A teacher can register with first name, last name, username, email, and password, and is taken to `/mcqs`
-- [ ] A teacher can register with username equal to email
-- [ ] The typed password is SHA-256 hashed in the browser before the register and login POST bodies are sent
+- [x] A teacher can register with first name, last name, username, email, and password, and is taken to `/mcqs`
+- [x] A teacher can register with username equal to email
+- [x] The typed password is SHA-256 hashed in the browser before the register and login POST bodies are sent
 - [ ] `users.password_hash` is a bcrypt hash, never plaintext and never the raw SHA-256 digest
 - [x] API success payloads never include `password_hash`
-- [ ] A teacher can log in with username **or** email and the matching password, and is taken to `/mcqs`
+- [x] A teacher can log in with username **or** email and the matching password, and is taken to `/mcqs`
 - [x] A wrong password or unknown identifier returns 401 `"Invalid credentials"` and does not reveal which was wrong
 - [x] A duplicate username or email on register returns 409 and does not create a second row
 - [x] Invalid payloads return 400 with a validation message
-- [ ] Logout calls `POST /api/auth/logout`, clears any client display hint, and returns the teacher to `/login`
-- [ ] `/mcqs` is a stub only: greeting + logout, no question authoring
+- [x] Logout calls `POST /api/auth/logout`, clears any client display hint, and returns the teacher to `/login`
+- [x] `/mcqs` is a stub only: greeting + logout, no question authoring
 - [x] No cookies, JWTs, social login, or server session store are introduced
 - [x] User service supports create, update, and delete even though update/delete have no UI in this phase
 - [ ] D1 queries use prepared statements and numbered placeholders
-- [ ] `npm test` is green for the tests listed in Phases 1–4
+- [x] `npm test` is green for the tests listed in Phases 1–4
 - [ ] Each implementation phase was developed red-then-green (tests existed and failed before the production code that makes them pass)
 - [ ] `npm run lint` and `npm run build` succeed
 
@@ -704,6 +751,6 @@ When working with this PRD:
 ## Current Status
 
 **Last Updated**: 2026-08-26
-**Current Phase**: Phase 3 complete — waiting for review before Phase 4
-**Status**: COMPLETED (Phases 0–3)
-**Next Steps**: After review, start Phase 4 (frontend pages) with failing Vitest tests first.
+**Current Phase**: Phase 4 complete — waiting for review before Phase 5
+**Status**: COMPLETED (Phases 0–4)
+**Next Steps**: After review, start Phase 5 (lint, build, browser verification).
