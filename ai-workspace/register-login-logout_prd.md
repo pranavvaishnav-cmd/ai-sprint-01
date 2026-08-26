@@ -292,7 +292,7 @@ These tests read the migration SQL. They do **not** talk to a live D1 database.
 
 **Phase complete when**: Phase 1 tests pass, `npm test` is otherwise green, and the local migration has been applied.
 
-### Phase 2: User service - PLANNED
+### Phase 2: User service - COMPLETED
 
 **Objective**: All user persistence and password hashing live in one server-only module.
 
@@ -474,7 +474,7 @@ MCQ stub:
 - `migrations/0001_create_users_table.sql` — `users` schema
 - `migrations/0001_create_users_table.test.ts` — schema contract tests
 - `src/lib/types/user.ts` — public user vs D1 row vs create/update inputs
-- `src/lib/services/user-service.ts` — CRUD + password verify; only this module talks to D1 for users
+- `src/lib/services/user-service.ts` — CRUD + password verify; only this module talks to D1 for users. Duplicate username/email throws `DuplicateUserError` on pre-check and on UNIQUE constraint races. Public `User` never includes `password_hash`; `getUserByIdentifier` returns the D1 row so login can verify the hash.
 - `src/lib/services/user-service.test.ts` — user service unit tests (mocked D1)
 - `src/lib/validations/auth.ts` — Zod schemas for register and login
 - `src/lib/validations/auth.test.ts` — schema accept/reject cases
@@ -563,7 +563,7 @@ Do not import the user service (or any D1 module) into a `'use client'` file.
 - [ ] Logout calls `POST /api/auth/logout`, clears any client display hint, and returns the teacher to `/login`
 - [ ] `/mcqs` is a stub only: greeting + logout, no question authoring
 - [ ] No cookies, JWTs, social login, or server session store are introduced
-- [ ] User service supports create, update, and delete even though update/delete have no UI in this phase
+- [x] User service supports create, update, and delete even though update/delete have no UI in this phase
 - [ ] D1 queries use prepared statements and numbered placeholders
 - [ ] `npm test` is green for the tests listed in Phases 1–4
 - [ ] Each implementation phase was developed red-then-green (tests existed and failed before the production code that makes them pass)
@@ -704,6 +704,6 @@ When working with this PRD:
 ## Current Status
 
 **Last Updated**: 2026-08-26
-**Current Phase**: Phase 1 complete — waiting for review before Phase 2
-**Status**: COMPLETED (Phase 0 + Phase 1)
-**Next Steps**: After review, start Phase 2 (user service) with failing Vitest tests first.
+**Current Phase**: Phase 2 complete — waiting for review before Phase 3
+**Status**: COMPLETED (Phases 0–2)
+**Next Steps**: After review, start Phase 3 (auth endpoints) with failing Vitest tests first.
